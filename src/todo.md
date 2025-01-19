@@ -1,9 +1,6 @@
 # Todo
 
-- interfact with shop via keys, not mouse
-- store on interactiving with creator
-- connect processors
-- connect batteries to the processors
+- !!! check on nested loops!!!
 
 # Feature twickle plans:
 

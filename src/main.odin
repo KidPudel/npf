@@ -18,23 +18,44 @@ Machine_Variant :: union {
 	Processor,
 	Battery,
 	Creator,
+	Entry,
+	Sled,
 }
 
-Processor :: struct {}
+Collision_Masks :: enum {
+	INTERACTABLE,
+	ROOT,
+}
 
-Battery :: struct {}
+Collision_White_List :: bit_set[Collision_Masks]
+
+Processor :: struct {
+	selected:            bool,
+	connected:           bool,
+	allowed_connections: Collision_White_List,
+}
+
+Battery :: struct {
+	selected:            bool,
+	connected:           bool,
+	allowed_connections: Collision_White_List,
+}
 
 Creator :: struct {}
 
+Entry :: struct {}
+
+Sled :: struct {}
+
 
 Machine :: struct {
-	position: [2]f32,
-	size:     [2]f32,
-	color:    rl.Color,
-	price:    int,
-	selected: bool,
+	position:       [2]f32,
+	size:           [2]f32,
+	color:          rl.Color,
+	price:          int,
+	collision_mask: Collision_Masks,
 	// shape-shifter
-	variant:  Machine_Variant,
+	variant:        Machine_Variant,
 }
 
 
@@ -46,14 +67,16 @@ Shop :: struct {
 }
 
 Factory :: struct {
-	sounds:                 [Sounds]rl.Sound,
-	machines:               [dynamic]Machine,
-	camera:                 rl.Camera2D,
-	window_size:            [2]i32,
-	shop:                   Shop,
-	energy:                 int,
-	since_energy_increase:  f32,
-	selected_machine_index: int,
+	sounds:                [Sounds]rl.Sound,
+	machines:              [dynamic]Machine,
+	creator:               Machine,
+	entry:                 Machine,
+	sled:                  Machine,
+	camera:                rl.Camera2D,
+	window_size:           [2]i32,
+	shop:                  Shop,
+	energy:                int,
+	since_energy_increase: f32,
 }
 
 
@@ -66,26 +89,25 @@ init_factory :: proc() -> ^Factory {
 	not_enough_energy_sound := rl.LoadSound("assets/not_enough_energy.wav")
 
 
-	machines := make([dynamic]Machine, 1)
+	machines := make([dynamic]Machine, 0)
+	append(&machines, new_machine(Creator{}))
 
-	machines_in_shop := make([dynamic]Machine, 2)
+	machines_in_shop := make([dynamic]Machine, 0)
 	append(&machines_in_shop, ..[]Machine{new_machine(Processor{}), new_machine(Battery{})}[:])
 
 	factory_ptr^ = Factory {
-		//energy = 100,
-		since_energy_increase = 0,
 		sounds = {.NOT_ENOUGH_ENERGY = not_enough_energy_sound},
 		machines = machines,
+		entry = new_machine(Entry{}),
+		sled = new_machine(Sled{}),
 		camera = rl.Camera2D {
 			target = {0, 0}, // target will be placed not at the center, but at the 0, 0 positions of the screen
 			zoom   = 1.0, // to see
 		},
-		window_size = {640, 480},
-		selected_machine_index = -1,
 		shop = Shop{shop_open = false, machines = machines_in_shop},
+		window_size = {640, 480},
+		since_energy_increase = 0,
 	}
-
-	append(&factory_ptr.machines, new_machine(Creator{}))
 
 
 	return factory_ptr
@@ -102,18 +124,18 @@ new_machine :: proc(machine_variant: Machine_Variant, positon: [2]f32 = {0, 0}) 
 			position = positon,
 			size = {20, 40},
 			color = rl.BLUE,
-			price = 40,
-			selected = false,
-			variant = Processor{},
+			price = 4,
+			collision_mask = .INTERACTABLE,
+			variant = Processor{allowed_connections = {.INTERACTABLE}},
 		}
 	case Battery:
 		return Machine {
 			position = positon,
 			size = {30, 30},
 			color = rl.ORANGE,
-			price = 20,
-			selected = false,
-			variant = Battery{},
+			price = 2,
+			collision_mask = .INTERACTABLE,
+			variant = Processor{allowed_connections = {.INTERACTABLE}},
 		}
 	case Creator:
 		return Machine {
@@ -121,8 +143,26 @@ new_machine :: proc(machine_variant: Machine_Variant, positon: [2]f32 = {0, 0}) 
 			size = {40, 60},
 			color = rl.BLACK,
 			price = 0,
-			selected = false,
-			variant = Creator{},
+			collision_mask = .ROOT,
+			variant = variant,
+		}
+	case Entry:
+		return Machine {
+			position = positon,
+			size = {40, 60},
+			color = rl.WHITE,
+			price = 0,
+			collision_mask = .ROOT,
+			variant = variant,
+		}
+	case Sled:
+		return Machine {
+			position = positon,
+			size = {40, 60},
+			color = rl.GREEN,
+			price = 0,
+			collision_mask = .ROOT,
+			variant = variant,
 		}
 	case:
 		panic("unknown machine type while getting new machine")
@@ -147,12 +187,35 @@ draw_info_factory :: proc(factory: Factory) {
 
 draw_machines :: proc(factory: Factory) {
 	for machine in factory.machines {
-		if machine.selected {
-			rl.DrawRectangleV(
-				{machine.position.x - 2, machine.position.y - 2},
-				{machine.size.x + 4, machine.size.y + 4},
-				rl.RED,
-			)
+		#partial switch v in machine.variant {
+		case Processor:
+			if v.connected {
+				rl.DrawRectangleV(
+					{machine.position.x - 2, machine.position.y - 2},
+					{machine.size.x + 4, machine.size.y + 4},
+					rl.GREEN,
+				)
+			} else if v.selected {
+				rl.DrawRectangleV(
+					{machine.position.x - 2, machine.position.y - 2},
+					{machine.size.x + 4, machine.size.y + 4},
+					rl.RED,
+				)
+			}
+		case Battery:
+			if v.connected {
+				rl.DrawRectangleV(
+					{machine.position.x - 2, machine.position.y - 2},
+					{machine.size.x + 4, machine.size.y + 4},
+					rl.GREEN,
+				)
+			} else if v.selected {
+				rl.DrawRectangleV(
+					{machine.position.x - 2, machine.position.y - 2},
+					{machine.size.x + 4, machine.size.y + 4},
+					rl.RED,
+				)
+			}
 		}
 		rl.DrawRectangleV(machine.position, machine.size, machine.color)
 	}
@@ -196,35 +259,114 @@ machine_in_range :: proc(cursor_position: [2]f32, machine: Machine) -> bool {
 	return hover_on_x && hover_on_y
 }
 
+// todo: check on nested loops!!!
+check_connection :: proc(factory: ^Factory, dragged_i: int) {
+	dragged_top := factory.machines[dragged_i].position.y
+	dragged_bottom := dragged_top + factory.machines[dragged_i].size.y
+	dragged_left := factory.machines[dragged_i].position.x
+	dragged_right := dragged_left + factory.machines[dragged_i].size.x
 
+	for machine, i in factory.machines {
+		connection_white_list: Collision_White_List
+		#partial switch v in factory.machines[dragged_i].variant {
+		case Processor:
+			connection_white_list = v.allowed_connections
+		case Battery:
+			connection_white_list = v.allowed_connections
+
+		}
+		if i == dragged_i || machine.collision_mask not_in connection_white_list {
+			continue
+		}
+		top := machine.position.y
+		bottom := top + machine.size.y
+		left := machine.position.x
+		right := left + machine.size.x
+
+
+		fmt.println(dragged_i)
+		fmt.println(i)
+
+		// dragged at the bottom of the static (with room/space to be inside)
+		// note reverse y
+		if (dragged_top <= bottom && dragged_top >= top) &&
+		   (dragged_left <= right && dragged_right >= left) {
+			fmt.println("bottom")
+			#partial switch &v in factory.machines[dragged_i].variant {
+			case Processor:
+				v.connected = true
+			case Battery:
+				v.connected = true
+			}
+
+		}
+		// dragged at the top of the static
+		if dragged_bottom == top && dragged_left == left {
+			fmt.println("top")
+		}
+		// dragged at the left of the static
+		if dragged_top == bottom && dragged_right == left {
+			fmt.println("left")
+		}
+		// dragged at the right of the static
+		if dragged_top == bottom && dragged_left == right {
+			fmt.println("right")
+		}
+
+	}
+}
+
+// todo: just general interaction with machine based on shape?
 drag_machine :: proc(factory: ^Factory) {
 	if !factory.shop.shop_open {
 		if rl.IsMouseButtonPressed(rl.MouseButton.LEFT) {
 			cursor_position := get_position_in_space(factory^)
-			for machine, i in factory.machines {
+			for &machine, i in factory.machines {
 
-				can_drag := machine_in_range(cursor_position, machine)
+				in_range := machine_in_range(cursor_position, machine)
 
-				if can_drag {
-					factory.selected_machine_index = i // remove
-					factory.machines[i].selected = true
-					if _, isCreator := machine.variant.(Creator); !isCreator {
+				switch &v in machine.variant {
+				case Processor:
+					if in_range {
+						v.selected = true
 						break
+					} else {
+						v.selected = false
 					}
-				} else {
-					factory.selected_machine_index = -1
-					if factory.machines[i].selected {
-						factory.machines[i].selected = false
+				case Battery:
+					if in_range {
+						v.selected = true
+						break
+					} else {
+						v.selected = false
 					}
+				case Creator, Entry, Sled:
+					continue // for now, later other logic, see stats?
 				}
 			}
 		}
-		// todo: make it less shit
-		if factory.selected_machine_index >= 0 && rl.IsMouseButtonDown(rl.MouseButton.LEFT) {
-			if _, isCreator := factory.machines[factory.selected_machine_index].variant.(Creator);
-			   !isCreator {
-				cursor_position := get_position_in_space(factory^)
-				factory.machines[factory.selected_machine_index].position = cursor_position
+		if rl.IsMouseButtonDown(rl.MouseButton.LEFT) {
+			for &machine, i in factory.machines {
+				// if this shape
+				switch v in machine.variant {
+				case Processor:
+					if v.selected {
+						cursor_position := get_position_in_space(factory^)
+						machine.position = cursor_position
+						fmt.println(factory.machines)
+						fmt.println("index: ", i)
+						check_connection(factory, i)
+					}
+				case Battery:
+					if v.selected {
+						cursor_position := get_position_in_space(factory^)
+						machine.position = cursor_position
+						check_connection(factory, i)
+					}
+				case Creator, Entry, Sled:
+					continue
+				}
+
 			}
 		}
 
@@ -235,7 +377,6 @@ drag_machine :: proc(factory: ^Factory) {
 draw_shop :: proc(factory: ^Factory) {
 	if factory.shop.shop_open {
 		shop_x, shop_y: f32 = 0, f32(factory.window_size.y) / 2.0
-		fmt.println(shop_x, shop_y)
 
 		rl.DrawRectangleV(
 			{shop_x, shop_y},
@@ -245,21 +386,22 @@ draw_shop :: proc(factory: ^Factory) {
 
 		shift: f32 = 0.0
 		for &machine in factory.shop.machines {
-			fmt.println(machine)
 			machine.position = {shop_x + shift, shop_y * 1.5}
-			fmt.println(machine.position)
-
-			if machine.selected {
-				rl.DrawRectangleV(
-					{machine.position.x - 2, machine.position.y - 2},
-					{machine.size.x + 4, machine.size.y + 4},
-					rl.RED,
-				)
-			}
 			rl.DrawRectangleV(machine.position, machine.size, machine.color)
 			shift += machine.size.x * 2
 		}
 	}
+}
+
+
+buy_machine :: proc(factory: ^Factory, variant: Machine_Variant) {
+	machine := new_machine(variant)
+	if machine.price > factory.energy {
+		rl.PlaySound(factory.sounds[.NOT_ENOUGH_ENERGY])
+		return
+	}
+	factory.energy -= machine.price
+	append(&factory.machines, machine)
 }
 
 
@@ -278,14 +420,7 @@ interact_with_shop :: proc(factory: ^Factory) {
 			for &machine in factory.shop.machines {
 				in_range := machine_in_range(cursor_positon_on_screen, machine)
 				if in_range {
-					#partial switch v in machine.variant {
-					case Processor:
-						append(&factory.machines, new_machine(Processor{}))
-					case Battery:
-						append(&factory.machines, new_machine(Battery{}))
-					case:
-						panic("unknown machine")
-					}
+					buy_machine(factory, machine.variant)
 				}
 			}
 		}
@@ -335,6 +470,10 @@ draw_game_frame :: proc(factory: ^Factory) {
 
 
 main :: proc() {
+	// must be initialized before loading any audio
+	rl.InitAudioDevice()
+	defer rl.CloseAudioDevice()
+
 	// init
 	factory := init_factory()
 	defer free(factory) // todo: refactor properly
@@ -347,9 +486,6 @@ main :: proc() {
 	rl.InitWindow(factory.window_size.x, factory.window_size.y, "north pole factory")
 	defer rl.CloseWindow()
 
-	// must be initialized before loading any audio
-	rl.InitAudioDevice()
-	defer rl.CloseAudioDevice()
 
 	rl.SetTargetFPS(60)
 
